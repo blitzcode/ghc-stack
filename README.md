@@ -78,6 +78,8 @@ Running `crash` yields the expected result:
     $ ./dist/build/crash/crash
     Segmentation fault
 
+The full sample program can also be found in the [crash folder](https://github.com/blitzcode/ghc-stack/tree/master/crash).
+
 ### A first try with gdb
 
 As discussed during the intro, no (direct) help from GHCi / the RTS here. Let's look at what `gdb` (documentation [here](http://www.gnu.org/software/gdb/documentation/), if you need a little refresher) tells us:
@@ -147,7 +149,7 @@ We'll soon start looking at various C header files from GHC's [RTS](https://ghc.
 
 There's also the issue of different versions of the RTS. There are debug / no-debug, single / multi-threaded, profiling enabled / disabled and 32 / 64 bit versions of it. You'll need to know what the program you're inspecting links against. See the [Rts/Config](https://ghc.haskell.org/trac/ghc/wiki/Commentary/Rts/Config) page for more details.
 
-Unlike most C APIs, the Haskell RTS one does not seem to be usable from C++. Among other issues, code in the headers uses identifiers like `new`.
+Unlike most C APIs, the Haskell RTS one does not seem to be usable from C++. Among other issues, code in the headers uses identifiers like `new`. (Update: Fixed in HEAD, see [Ticket #8676](https://ghc.haskell.org/trac/ghc/ticket/8676#ticket))
 
 Finally, [SourceTree/Includes](https://ghc.haskell.org/trac/ghc/wiki/Commentary/SourceTree/Includes) from the GHC commentary explains the general include structure.
 
@@ -230,33 +232,33 @@ How do we get at the CCS when we're looking at a crashed program in `gdb`? Have 
  *     2) caller-saves registers are saved across a CCall
  */
 typedef struct {
-  StgUnion 	  rR1;
-  StgUnion   	  rR2;
-  StgUnion   	  rR3;
-  StgUnion   	  rR4;
-  StgUnion   	  rR5;
-  StgUnion   	  rR6;
-  StgUnion   	  rR7;
-  StgUnion   	  rR8;
-  StgUnion   	  rR9;		/* used occasionally by heap/stack checks */
-  StgUnion   	  rR10;		/* used occasionally by heap/stack checks */
-  StgFloat 	  rF1;
-  StgFloat 	  rF2;
-  StgFloat 	  rF3;
-  StgFloat 	  rF4;
-  StgDouble 	  rD1;
-  StgDouble 	  rD2;
+  StgUnion        rR1;
+  StgUnion        rR2;
+  StgUnion        rR3;
+  StgUnion        rR4;
+  StgUnion        rR5;
+  StgUnion        rR6;
+  StgUnion        rR7;
+  StgUnion        rR8;
+  StgUnion        rR9;          /* used occasionally by heap/stack checks */
+  StgUnion        rR10;         /* used occasionally by heap/stack checks */
+  StgFloat        rF1;
+  StgFloat        rF2;
+  StgFloat        rF3;
+  StgFloat        rF4;
+  StgDouble       rD1;
+  StgDouble       rD2;
   StgWord64       rL1;
-  StgPtr 	  rSp;
-  StgPtr 	  rSpLim;
-  StgPtr 	  rHp;
-  StgPtr 	  rHpLim;
+  StgPtr          rSp;
+  StgPtr          rSpLim;
+  StgPtr          rHp;
+  StgPtr          rHpLim;
   struct CostCentreStack_ * rCCCS;  /* current cost-centre-stack */
   struct StgTSO_ *     rCurrentTSO;
   struct nursery_ *    rNursery;
   struct bdescr_ *     rCurrentNursery; /* Hp/HpLim point into this block */
   struct bdescr_ *     rCurrentAlloc;   /* for allocation using allocate() */
-  StgWord         rHpAlloc;	/* number of *bytes* being allocated in heap */
+  StgWord         rHpAlloc;     /* number of *bytes* being allocated in heap */
   StgWord         rRet;  /* holds the return code of the thread */
 } StgRegTable;
 ```
@@ -272,7 +274,7 @@ If you can't find this header, it's because you're looking at a clean source tar
 Assuming we found our header and offset, let's proceed with `gdb`:
 
     (gdb) x/1a $ebx+96
-    0x21352c <MainCapability+108>:	0x6fc578
+    0x21352c <MainCapability+108>:      0x6fc578
 
 We now have a pointer to `CostCentreStack`. From [CCS.h](https://ghc.haskell.org/trac/ghc/browser/ghc/includes/rts/prof/CCS.h):
 
@@ -332,12 +334,12 @@ typedef struct CostCentre_ {
 The `label`, `module` and `srcloc` members look just like what we need! Continuing where we left of with `gdb`, looking at `ccsID` and the actual top `CostCentre` pointer (`cc` from the `CostCentreStack` pointer we just got)
 
     (gdb) x/2a 0x6fc578
-    0x6fc578:	0x71	0x2095d8 <Main_someFuncC_C0_cc>
+    0x6fc578:   0x71    0x2095d8 <Main_someFuncC_C0_cc>
 
 Diving into `ConstCentre`, now looking at `ccID`, `label`, `module`, and `srcloc`
 
     (gdb) x/4a 0x2095d8
-    0x2095d8 <Main_someFuncC_C0_cc>:	0x1	0x19f5a0 <c1zU_str>	0x19f5ac <c1zW_str>	0x19f5b4 <c1zY_str>
+    0x2095d8 <Main_someFuncC_C0_cc>:    0x1     0x19f5a0 <c1zU_str>     0x19f5ac <c1zW_str>     0x19f5b4 <c1zY_str>
 
 Printing out the latter three as C strings
 
@@ -351,11 +353,11 @@ Printing out the latter three as C strings
 Just what we wanted! We're now going up the stack one level, using `CostCentreStack`'s `prevStack` pointer (8 bytes into the structure, as specified by `#define OFFSET_CostCentreStack_prevStack 8`)
 
     (gdb) x 0x6fc578+8
-    0x6fc580:	0x6fc4d8
+    0x6fc580:   0x6fc4d8
     (gdb) x 0x6fc4d8+4
-    0x6fc4dc:	0x2095fc <Main_someFuncB_C1_cc>
+    0x6fc4dc:   0x2095fc <Main_someFuncB_C1_cc>
     (gdb) x/4a 0x2095fc
-    0x2095fc <Main_someFuncB_C1_cc>:	0x2	0x19f5cc <c1A0_str>	0x19f5d8 <c1A2_str>	0x19f5e0 <c1A4_str>
+    0x2095fc <Main_someFuncB_C1_cc>:    0x2     0x19f5cc <c1A0_str>     0x19f5d8 <c1A2_str>     0x19f5e0 <c1A4_str>
     (gdb) p (char *) 0x19f5cc
     $7 = 0x19f5cc "someFuncB"
     (gdb) p (char *) 0x19f5d8
@@ -366,11 +368,11 @@ Just what we wanted! We're now going up the stack one level, using `CostCentreSt
 And one more
 
     (gdb) x 0x6fc4d8+8
-    0x6fc4e0:	0x6fc398
+    0x6fc4e0:   0x6fc398
     (gdb) x 0x6fc398+4
-    0x6fc39c:	0x209644 <Main_main_C3_cc>
+    0x6fc39c:   0x209644 <Main_main_C3_cc>
     (gdb) x/4a 0x209644
-    0x209644 <Main_main_C3_cc>:	0x4	0x19f624 <c1Ac_str>	0x19f62c <c1Ae_str>	0x19f634 <c1Ag_str>
+    0x209644 <Main_main_C3_cc>: 0x4     0x19f624 <c1Ac_str>     0x19f62c <c1Ae_str>     0x19f634 <c1Ag_str>
     (gdb) p (char *) 0x19f624
     $10 = 0x19f624 "main"
     (gdb) p (char *) 0x19f62c
@@ -458,7 +460,7 @@ foreign import ccall unsafe "crash.h someCFuncA"
     Program received signal EXC_BAD_ACCESS, Could not access memory.
     Reason: KERN_PROTECTION_FAILURE at address: 0x00000001
     someCFuncB () at crash.c:24
-    24	    * (char *) 1 = 0;
+    24      * (char *) 1 = 0;
     (gdb) bt
     #0  someCFuncB () at crash.c:24
     #1  0x0000278b in someCFuncA () at crash.c:18
@@ -468,12 +470,12 @@ foreign import ccall unsafe "crash.h someCFuncA"
 The debugger could be used to walk the C part of the stack, but we're going to use frame pointers to demonstrate the method.
 
     (gdb) x/2a $ebp
-    0xbfffd6e8:	0xbfffd6f8	0x278b <someCFuncA+11>
+    0xbfffd6e8: 0xbfffd6f8      0x278b <someCFuncA+11>
 
 The frame pointer gives us our first frame link and return address pointers, establishing the someCFuncA -> someCFuncB call order. Moving on:
 
     (gdb) x/2a 0xbfffd6f8
-    0xbfffd6f8:	0x603cc8	0x220e <s1Al_info+38>
+    0xbfffd6f8: 0x603cc8        0x220e <s1Al_info+38>
 
 The next frame shows we're retuning back into Haskell code (`s1Al_info`). Since Haskell does not use frame pointers, the space of the pointer to the next stack frame is simply occupied by the `Sp` register, pointing to the top of Haskell's STG stack. A detailed look at the STG stack will follow, but for now all we need to know is that the closure on the top will have a layout like this:
 
@@ -502,14 +504,14 @@ typedef struct {
 Basically, the second word on the stack will point us to the CCS. Here:
 
     (gdb) x/2a 0x603cc8
-    0x603cc8:	0x21e8 <s1Al_info>	0x6fc578
+    0x603cc8:   0x21e8 <s1Al_info>      0x6fc578
 
 And showing just enough of `CostCentreStack` to reveal the `CostCentre` pointer
 
     (gdb) x/2a 0x6fc578
-    0x6fc578:	0x71	0x2095d8 <Main_someFuncC_C0_cc>
+    0x6fc578:   0x71    0x2095d8 <Main_someFuncC_C0_cc>
 
-We found the CSS and the cost center for someFuncC, allowing us to proceed as before.
+We found the CCS and the cost center for someFuncC, allowing us to proceed as before.
 
 ### The STG stack
 
@@ -518,19 +520,19 @@ So far we've only been working with the CCS, which is not available unless we've
 Recall from our earlier discussion of registers (or read [Rts/HaskellExecution/Registers](https://ghc.haskell.org/trac/ghc/wiki/Commentary/Rts/HaskellExecution/Registers) again) that the virtual `Sp` register (`ebp` /  `rbp` on x86 / x86-64) always points to the top of the stack. We can also use the `BaseReg` and get access to the current [TSO](https://ghc.haskell.org/trac/ghc/wiki/Commentary/Rts/Storage/HeapObjects#ThreadStateObjects), containing a pointer to the `StgStack` structure. In any case, we'll have a look with `gdb`:
 
     (gdb) x/32a $ebp
-    0x503cd8:	0x1d94 <s1A7_info>	0x1e2c <s1A8_info>	0xefc6c <stg_catch_frame_info>	0x0
-    0x503ce8:	0x11bd82 <base_GHCziTopHandler_runIO2_closure+2>	0xf32d8 <stg_stop_thread_info>	0xf2f34 <stg_TSO_info>	0x11d79c <stg_END_TSO_QUEUE_closure>
-    0x503cf8:	0x5038f0	0x503930	0x1	0x0
-    0x503d08:	0x11d79c <stg_END_TSO_QUEUE_closure>	0x3	0x0	0x1
-    0x503d18:	0x300670	0x11e440 <MainCapability>	0x11d798 <stg_NO_TREC_closure>	0x11d79c <stg_END_TSO_QUEUE_closure>
-    0x503d28:	0x11d79c <stg_END_TSO_QUEUE_closure>	0xec	0xf321c <stg_MUT_ARR_PTRS_DIRTY_info>	0x41
-    0x503d38:	0x42	0x11c0d5 <base_DataziMaybe_Nothing_closure+1>	0x11c0d5 <base_DataziMaybe_Nothing_closure+1>	0x502fba
-    0x503d48:	0x11c0d5 <base_DataziMaybe_Nothing_closure+1>	0x11c0d5 <base_DataziMaybe_Nothing_closure+1>	0x11c0d5 <base_DataziMaybe_Nothing_closure+1>	0x11c0d5 <base_DataziMaybe_
+    0x503cd8:   0x1d94 <s1A7_info>      0x1e2c <s1A8_info>      0xefc6c <stg_catch_frame_info>  0x0
+    0x503ce8:   0x11bd82 <base_GHCziTopHandler_runIO2_closure+2>        0xf32d8 <stg_stop_thread_info>  0xf2f34 <stg_TSO_info>  0x11d79c <stg_END_TSO_QUEUE_closure>
+    0x503cf8:   0x5038f0        0x503930        0x1     0x0
+    0x503d08:   0x11d79c <stg_END_TSO_QUEUE_closure>    0x3     0x0     0x1
+    0x503d18:   0x300670        0x11e440 <MainCapability>       0x11d798 <stg_NO_TREC_closure>  0x11d79c <stg_END_TSO_QUEUE_closure>
+    0x503d28:   0x11d79c <stg_END_TSO_QUEUE_closure>    0xec    0xf321c <stg_MUT_ARR_PTRS_DIRTY_info>   0x41
+    0x503d38:   0x42    0x11c0d5 <base_DataziMaybe_Nothing_closure+1>   0x11c0d5 <base_DataziMaybe_Nothing_closure+1>   0x502fba
+    0x503d48:   0x11c0d5 <base_DataziMaybe_Nothing_closure+1>   0x11c0d5 <base_DataziMaybe_Nothing_closure+1>   0x11c0d5 <base_DataziMaybe_Nothing_closure+1>   0x11c0d5 <base_DataziMaybe_
 
 The first 32 words of the stack (and what comes after it, perhaps)! How can we attempt to understand this further? There's a fair bit of material on the [STG machine](https://ghc.haskell.org/trac/ghc/wiki/Commentary/Compiler/GeneratedCode) page on how C-- code uses the stack, but let's first look at an excerpt from the [Rts/Storage/Stack](https://ghc.haskell.org/trac/ghc/wiki/Commentary/Rts/Storage/Stack) page:
 
 > The stack consists of a sequence of stack frames (also sometimes called activation records) where each frame has the same layout as a heap object:
-> Header 	Payload...
+> Header        Payload...
 
 and
 
@@ -637,16 +639,16 @@ Now, why does `StgRetInfoTable` prepend an additional field instead of append? I
 
        "info pointer"    The first word of the closure.  Might point
                          to either the end or the beginning of the
-			 info table, depending on whether we're using
-			 the mini interpretter or not.  GET_INFO(c)
-			 retrieves the info pointer of a closure.
+                         info table, depending on whether we're using
+                         the mini interpretter or not.  GET_INFO(c)
+                         retrieves the info pointer of a closure.
 
        "info table"      The info table structure associated with a
                          closure.  This is always a pointer to the
-			 beginning of the structure, so we can
-			 use standard C structure indexing to pull out
-			 the fields.  get_itbl(c) returns a pointer to
-			 the info table for closure c.
+                         beginning of the structure, so we can
+                         use standard C structure indexing to pull out
+                         the fields.  get_itbl(c) returns a pointer to
+                         the info table for closure c.
 
    An address of the form xxxx_info points to the end of the info
    table or the beginning of the info table depending on whether we're
@@ -727,26 +729,42 @@ EXTERN_INLINE StgWord stack_frame_sizeW( StgClosure *frame )
 
     case RET_DYN:
     {
-	StgRetDyn *dyn = (StgRetDyn *)frame;
-	return  sizeofW(StgRetDyn) + RET_DYN_BITMAP_SIZE +
-	    RET_DYN_NONPTR_REGS_SIZE +
-	    RET_DYN_PTRS(dyn->liveness) + RET_DYN_NONPTRS(dyn->liveness);
+        StgRetDyn *dyn = (StgRetDyn *)frame;
+        return  sizeofW(StgRetDyn) + RET_DYN_BITMAP_SIZE +
+            RET_DYN_NONPTR_REGS_SIZE +
+            RET_DYN_PTRS(dyn->liveness) + RET_DYN_NONPTRS(dyn->liveness);
     }
 
     case RET_FUN:
-	return sizeofW(StgRetFun) + ((StgRetFun *)frame)->size;
+        return sizeofW(StgRetFun) + ((StgRetFun *)frame)->size;
 
     case RET_BIG:
-	return 1 + GET_LARGE_BITMAP(&info->i)->size;
+        return 1 + GET_LARGE_BITMAP(&info->i)->size;
 
     case RET_BCO:
-	return 2 + BCO_BITMAP_SIZE((StgBCO *)((P_)frame)[1]);
+        return 2 + BCO_BITMAP_SIZE((StgBCO *)((P_)frame)[1]);
 
     default:
-	return 1 + BITMAP_SIZE(info->i.layout.bitmap);
+        return 1 + BITMAP_SIZE(info->i.layout.bitmap);
     }
 }
 ```
+
+The W postfix means the function returns the size in words, not bytes.
+
+How do we know when we reached the bottom of the stack? If we have access to the `StgStack` structure (i.e. from the TSO)
+
+```c
+typedef struct StgStack_ {
+    StgHeader header;
+    StgWord32 stack_size;   // stack size in *words*
+    StgWord32 dirty;        // non-zero => dirty
+    StgPtr sp;              // current stack pointer
+    StgWord stack[FLEXIBLE_ARRAY];
+} StgStack;
+```
+
+it's rather obvious as we have the stack pointer, start and size of the current stack chunk. If not, we can look for a closure of type `STOP_FRAME` and use this as our bottom marker.
 
 One last type of stack frame we need to discuss is the underflow frame. The STG stack is implemented as a linked-list of chunks (see [Implement stack chunks and separate TSO/STACK objects](https://ghc.haskell.org/trac/ghc/changeset/f30d527344db528618f64a25250a3be557d9f287/ghc) and [this](https://ghc.haskell.org/trac/ghc/blog/stack-chunks) post from the [GHC blog](https://ghc.haskell.org/trac/ghc/blog/)). Here's the closure of [type](https://ghc.haskell.org/trac/ghc/browser/ghc/includes/rts/storage/ClosureTypes.h) `UNDERFLOW_FRAME` from [Closures.h](https://ghc.haskell.org/trac/ghc/browser/ghc/includes/rts/storage/Closures.h):
 
@@ -781,17 +799,218 @@ Linux provides atos-like functionality through [`addr2line`](http://www.linuxcom
 
 The `atos` communication, wrapping and parsing code will be handled by the [ATOS_Pipe](https://github.com/blitzcode/rsvp/blob/94c167bcf2a82092a8fe21eeb2e7a5a6b2d8fc77/src/prof.cpp#L128) and [SymbolManager](https://github.com/blitzcode/rsvp/blob/94c167bcf2a82092a8fe21eeb2e7a5a6b2d8fc77/src/prof.cpp#L181) classes from [rsvp](https://github.com/blitzcode/rsvp/).
 
+With those classes, getting the symbol name string for a program counter value is very simple:
+
+```c
+symbol->SymbolIDToName(symbol->AddressToSymbolID(x86ts32.__eip))
+```
+
 ### Inspecting another process
 
 To apply the stack traversal and symbol resolution methods described, we need to have access to the memory, threads and registers of the debugged process. We also need to be notified once it segfaults. On Linux the [`ptrace`](http://linux.die.net/man/2/ptrace) call should be able to provide everything we need. Unfortunately, OS X has a rather [gimped implementation](https://developer.apple.com/library/mac/documentation/Darwin/Reference/ManPages/man2/ptrace.2.html) of that API. See [uninformed.org](http://uninformed.org/index.cgi?v=4&a=3&p=14) for a discussion of workarounds for OS X, and this [Linux Journal](http://www.linuxjournal.com/article/6100) article for an explanation of how it works on Linux.
+
+Our usage of `ptrace` boils down to initiating the tracing relationship with the child like this
+
+```c
+pid_t child = fork();
+if (child == 0)
+{
+    // Let parent trace us
+    ptrace(PT_TRACE_ME, 0, NULL, NULL);
+
+    if (execv(argv[1], &argv[1]) == -1)
+        assert("execl() failed, can't load child executable");
+}
+else
+{
+    DebugLoop();
+    kill(child, SIGKILL);
+}
+```
+
+and then letting the child continue every time we receive a signal from it (`waitpid`)
+
+```c
+void PTraceContinue(pid_t pid)
+{
+    // Child process stopped after signalling us, let it proceed
+    ptrace(PT_CONTINUE, pid, (caddr_t) 1, 0);
+}
+```
+
+The `DebugLoop` function handling events from the child / target process is structured as follows
+
+```c
+void DebugLoop(const TargetInfo& ti)
+{
+    while (true)
+    {
+        int status;
+        waitpid(ti.m_pid, &status, 0);
+
+        // Handle signal
+        if (WIFEXITED(status))
+            break;
+        else if (WIFSIGNALED(status))
+            break;
+        else if (WIFSTOPPED(status))
+        {
+            const int sig = WSTOPSIG(status);
+            switch (sig)
+            {
+                // Fault?
+                case SIGSEGV:
+                case SIGBUS:
+                case SIGILL:
+                case SIGFPE:
+                case SIGSYS:
+                    TraceProcessState(ti);
+                    return;
+                // Continue
+                default:
+                    PTraceContinue(ti.m_pid);
+                    break;
+            }
+        }
+    }
+}
+```
 
 ### Mach
 
 We'll need to replace some of the missing `ptrace` functionality through [Mach kernel](http://en.wikipedia.org/wiki/Mach_%28kernel%29) functions. Mach is the underlying kernel on which OS X implements its BSD / POSIX layer. Mach in OS X is somewhat sparsely documented, but see [uninformed.org](http://uninformed.org/index.cgi?v=4&a=3), [developer.apple.com](https://developer.apple.com/library/mac/documentation/Darwin/Conceptual/KernelProgramming/About/About.html#//apple_ref/doc/uid/TP30000905-CH204-TPXREF101), [Mach IPC Interface](http://web.mit.edu/darwin/src/modules/xnu/osfmk/man/) and [Mac OS X Internals: A Systems Approach](http://www.amazon.com/Mac-OS-Internals-Systems-Approach/dp/0321278542/) (a somewhat dated but still useful book). The Mach APIs can provide us with full access to the debugged process.
 
-The Mach headers can be found in `/usr/include/mach/` and subdirectories. A full Mach kernel API tutorial is out of scope for this document, but the headers and references given above should hopefully suffice.
-
 For Windows, similar functionality can be accessed through APIs like `CreateRemoteThread`, `SuspendThread`, `GetThreadContext`, `ResumeThread` and `StackWalk64`.
+
+### Mach crash course
+
+A full Mach kernel API tutorial is out of scope for this document, but here are the bits we need for stack capture.
+
+The Mach headers can be found in `/usr/include/mach/` and subdirectories. Include like this
+
+```c
+#include <mach/mach.h>
+#include <mach/mach_vm.h> // for mach_vm_ instead of vm_
+```
+
+We need a port for the task to be debugged
+
+```c
+task_for_pid(mach_task_self(), pid, &m_task_port);
+```
+
+Obtain a list of threads from the target process
+
+```c
+thread_act_port_array_t thread_list;
+mach_msg_type_number_t thread_count;
+task_threads(ti.m_task_port, &thread_list, &thread_count);
+```
+
+Query thread scheduling etc. information
+
+```c
+thread_basic_info tbi;
+mach_msg_type_number_t thread_info_count = THREAD_BASIC_INFO_COUNT;
+thread_info(thread_list[thread_idx],
+            THREAD_BASIC_INFO,
+            (thread_info_t) &tbi,
+            &thread_info_count);
+```
+
+Skip threads which were not running when we got the fault
+
+```c
+if (tbi.flags & TH_FLAGS_SWAPPED)
+    continue;
+```
+
+Query thread exception information (trap number, fault address etc.)
+
+```c
+x86_exception_state32_t x86es32;
+mach_msg_type_number_t exception_state_count32 = x86_EXCEPTION_STATE32_COUNT;
+thread_get_state(thread_list[thread_idx],
+                 x86_EXCEPTION_STATE32,
+                 (thread_state_t) &x86es32,
+                 &exception_state_count32);
+```
+
+Query thread registers (program counter, frame pointer, etc.)
+
+```c
+x86_thread_state32_t x86ts32;
+mach_msg_type_number_t thread_state_count32 = x86_THREAD_STATE32_COUNT;
+thread_get_state(thread_list[thread_idx],
+                 x86_THREAD_STATE32,
+                 (thread_state_t) &x86ts32,
+                 &thread_state_count32);
+```
+
+And finally, read memory from the target process
+
+```c
+kern_return_t ReadMemory(mach_port_name_t task, target_ptr_t address, target_ptr_t size, void *out)
+{
+    mach_vm_size_t inout_size = size;
+    kern_return_t ret = mach_vm_read_overwrite(
+        task,
+        address,
+        inout_size,
+        (mach_vm_address_t) (uintptr_t) out,
+        &inout_size);
+    if (ret != KERN_SUCCESS)
+        return ret;
+    if (inout_size != size)
+        return KERN_FAILURE;
+    return KERN_SUCCESS;
+}
+```
+
+### Other obstacles
+
+How do we know if our target process is using a profiling RTS or not (CCS vs STG stack traversal)? We can't just call `rts_isProfiled`, but we can use [`nm`](http://unixhelp.ed.ac.uk/CGI/man-cgi?nm) to check for certain symbols, like this:
+
+```c++
+bool DoesSymbolExist(const char *executable, const char *symbol)
+{
+    // Use nm to check if a symbol exists
+    char buf[1024];
+    std::snprintf(buf, sizeof(buf), "nm %s | grep %s", executable, symbol);
+    std::FILE *pipe = popen(buf, "r");
+    assert(pipe != NULL);
+    bool ret = std::fread(buf, 1, sizeof(buf), pipe) != 0;
+    pclose(pipe);
+    return ret;
+}
+
+bool IsProfilingRTS(const char *exe) { return DoesSymbolExist(exe, "_CCS_MAIN"      ); }
+
+bool IsThreadedRTS (const char *exe) { return DoesSymbolExist(exe, "_createOSThread"); }
+```
+
+When our target process stops with a fault, how do we know if we're in Haskell or C etc. code? I don't really have a good answer for that, but this heuristic seems to work in pratice:
+
+```c++
+bool IsHaskellSymbol(
+    const TargetInfo& ti,
+    SymbolManager *symbol,
+    uint32_t sym_id,
+    uint16_t file_name_id)
+{
+    // Haskell functions don't have source file debug information
+    if (std::strcmp(symbol->FileIDToName(file_name_id), symbol->GetUnresolvedSymbolName()) != 0)
+        return false;
+    // Assume that all Haskell functions come from our executable
+    if (strcasecmp(symbol->SymbolIDToModule(sym_id), ti.m_module.c_str()) != 0)
+        return false;
+    // Assume that all Haskell functions have certain tokens in their name
+    if (std::strstr(symbol->SymbolIDToName(sym_id), "_info") == NULL)
+        return false;
+
+    return true;
+}
+```
 
 ### The Glorious Haskell Debugger v0.0.1 Pre-alpha
 
